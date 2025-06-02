@@ -11,7 +11,6 @@
           icon="las la-file-upload"
           @click="triggerFileInput()"
         >
-          Carga Masiva
           <q-tooltip>Cargar prendas desde Excel</q-tooltip>
         </q-btn>
         <input
