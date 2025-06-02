@@ -3,6 +3,25 @@
     <div class="row q-pa-md">
       <div class="col-12 items-end q-mb-md" style="text-align: end">
         <q-btn
+          class="q-mr-sm"
+          square
+          color="white"
+          glossy
+          text-color="black"
+          icon="las la-file-upload"
+          @click="triggerFileInput()"
+        >
+          Carga Masiva
+          <q-tooltip>Cargar prendas desde Excel</q-tooltip>
+        </q-btn>
+        <input
+          type="file"
+          ref="fileInput"
+          @change="handleFileUpload"
+          accept=".xlsx, .xls"
+          style="display: none"
+        />
+        <q-btn
           class="text-end"
           square
           color="white"
@@ -99,8 +118,12 @@
 <script setup lang="ts">
 import { QTable, useQuasar } from 'quasar'
 import { onMounted, ref } from 'vue'
-import { api } from 'src/boot/axios'
+import { api } from 'src/boot/axios';
+import axios from 'axios';
+import * as XLSX from 'xlsx'
+
 import type { Garments } from 'src/common/interfaces/garments.interface'
+import type { GarmentExcelRow } from 'src/common/interfaces/excels.interface'
 
 const $q = useQuasar()
 
@@ -283,5 +306,137 @@ function createGarment() {
 function closeDialog() {
   fixed.value = false
   onReset()
+}
+
+const fileInput = ref<HTMLInputElement | null>(null)
+
+function triggerFileInput(): void {
+  fileInput.value?.click()
+}
+
+async function handleFileUpload(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+
+  if (!file) {
+    $q.notify({
+      message: 'No se seleccionó ningún archivo.',
+      color: 'warning',
+      position: 'top',
+    })
+    return
+  }
+
+  if (!file.name.match(/\.(xlsx|xls)$/)) {
+    $q.notify({
+      message: 'Por favor, seleccione un archivo Excel (.xlsx o .xls).',
+      color: 'negative',
+      position: 'top',
+    })
+    if (target) { // Reset input if wrong file type
+      target.value = ''
+    }
+    return
+  }
+
+  $q.loading.show({ message: 'Procesando archivo...' })
+
+  try {
+    const data = await file.arrayBuffer()
+    const workbook = XLSX.read(data)
+    const firstSheetName = workbook.SheetNames[0] ?? ''
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    if (!worksheet) {
+      $q.notify({
+        message: 'No se pudo encontrar una hoja de cálculo válida en el archivo Excel. Verifique que el archivo no esté vacío y contenga al menos una hoja.',
+        color: 'negative',
+        position: 'top',
+      });
+      const target = event.target as HTMLInputElement | null; // Re-access target if needed, or ensure it's in scope
+      if (target) {
+        target.value = '';
+      }
+      $q.loading.hide();
+      return;
+    }
+    // Assumes headers are in the first row and are 'codigo' and 'nombre'
+    const jsonData = XLSX.utils.sheet_to_json<GarmentExcelRow>(worksheet);
+
+    const garmentsToCreate = jsonData
+      .map((item: GarmentExcelRow) => ({
+        code: item.codigo !== undefined && item.codigo !== null ? String(item.codigo).trim() : '',
+        name: item.nombre !== undefined && item.nombre !== null ? String(item.nombre).trim() : ''
+      }))
+      .filter((item: { code: string; name: string }) => item.code && item.name); // Keep only items with valid code and name
+
+    if (garmentsToCreate.length === 0) {
+      $q.notify({
+        message: 'No se encontraron datos válidos (codigo, nombre) en el archivo Excel. Verifique que las columnas "codigo" y "nombre" existan en la primera fila y contengan datos.',
+        color: 'warning',
+        position: 'top',
+        timeout: 7000
+      })
+      return
+    }
+
+    await bulkSaveGarments(garmentsToCreate);
+
+  } catch (error) {
+    console.error('Error procesando el archivo Excel:', error)
+    $q.notify({
+      message: 'Error al procesar el archivo Excel.',
+      color: 'negative',
+      position: 'top',
+    })
+  } finally {
+    $q.loading.hide()
+    if (target) {
+      target.value = ''
+    }
+  }
+}
+
+async function bulkSaveGarments(garments: Array<{ code: string; name: string }>): Promise<void> {
+  if (garments.length === 0) {
+    $q.notify({
+      message: 'No hay prendas para guardar.',
+      color: 'info',
+      position: 'top',
+    });
+    return;
+  }
+
+  $q.loading.show({ message: `Guardando ${garments.length} prendas...` });
+  try {
+    const response = await api.post('garments/bulk', garments);
+
+    $q.notify({
+      message: response.data.message || `${garments.length} prendas guardadas masivamente con éxito.`,
+      color: 'positive',
+      position: 'top',
+    });
+    getGarments();
+  } catch (error: unknown) {
+    console.error('Error en la carga masiva:', error);
+    let errorMessage = 'Error desconocido durante la carga masiva.';
+    if (axios.isAxiosError(error)) {
+      if (error.response && error.response.data && typeof error.response.data.message === 'string') {
+        errorMessage = error.response.data.message;
+      } else {
+        errorMessage = error.message;
+      }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    $q.notify({
+      message: `Error en la carga masiva: ${errorMessage}`,
+      color: 'negative',
+      position: 'top',
+      timeout: 7000,
+    });
+  } finally {
+    $q.loading.hide();
+  }
 }
 </script>
