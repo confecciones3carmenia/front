@@ -3,6 +3,17 @@
     <div class="row q-pa-md">
       <div class="col-12 items-end q-mb-md" style="text-align: end">
         <q-btn
+          class="text-end q-mr-sm"
+          square
+          color="white"
+          glossy
+          text-color="black"
+          icon="las la-file-upload"
+          @click="triggerFileInput()"
+        >
+          <q-tooltip>Carga Masiva de Tiempos</q-tooltip>
+        </q-btn>
+        <q-btn
           class="text-end"
           square
           color="white"
@@ -13,6 +24,7 @@
         >
           <q-tooltip>Agregar tiempo</q-tooltip>
         </q-btn>
+        <input type="file" ref="fileInput" @change="handleFileUpload" accept=".xlsx, .xls" style="display: none" />
       </div>
       <div class="col-12 full-width">
         <q-table
@@ -126,10 +138,13 @@ import { watch } from 'vue'
 import type { QTable } from 'quasar'
 import { useQuasar } from 'quasar'
 import { api } from 'src/boot/axios'
+import axios from 'axios';
+import * as XLSX from 'xlsx';
 import type { Garments } from 'src/common/interfaces/garments.interface'
 import type { Operation } from 'src/common/interfaces/operation.interface'
-import type { Time } from 'src/common/interfaces/times.interface'
+import type { Time, TimeCreationPayload, TimeExcelRow } from 'src/common/interfaces/times.interface'
 import { onMounted, ref } from 'vue'
+
 
 const $q = useQuasar()
 
@@ -179,6 +194,7 @@ const operations = ref<Array<string>>([])
 const referenceTime = ref<boolean>(false)
 const rows = ref<Array<Time>>([])
 const title = ref<string>('Crear')
+const fileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
   getTimes()
@@ -289,8 +305,6 @@ function editTime(row: Time) {
   buttonName.value = 'Actualizar'
   fixed.value = true
   formTimes.value = { ...row, operation: (<Operation>row.operation).code, garment: (<Garments>row.garment).code }
-  console.log('el row', row);
-  console.log('el value form', formTimes.value);
 }
 
 function deleteTime(row: Time) {
@@ -346,7 +360,6 @@ function getTimes(): void {
   api
     .get('/times')
     .then((response) => {
-      console.log('response', response)
       rows.value = response.data
     })
     .catch((error) => {
@@ -406,4 +419,190 @@ function getOperations(): void {
       $q.loading.hide()
     })
 }
+
+function triggerFileInput(): void {
+  fileInput.value?.click();
+}
+
+async function handleFileUpload(event: Event): Promise<void> {
+  const target = event.target as HTMLInputElement;
+  if (!target.files || target.files.length === 0) {
+    $q.notify({ type: 'negative', message: 'No se seleccionó ningún archivo.' });
+    return;
+  }
+
+  const file = target.files[0];
+
+  if (!file) { // Explicit check for the file itself
+    $q.notify({ type: 'negative', message: 'No se pudo acceder al archivo seleccionado.' });
+    return;
+  }
+
+  const reader = new FileReader();
+
+  $q.loading.show({
+    message: 'Procesando archivo...',
+  });
+
+  try {
+    const data = await new Promise<ArrayBuffer>((resolve, reject) => {
+      reader.onload = (e) => resolve(e.target?.result as ArrayBuffer);
+      reader.onerror = (err) => reject(err);
+      reader.readAsArrayBuffer(file);
+    });
+
+    const workbook = XLSX.read(data, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+
+    if (!firstSheetName) {
+      $q.notify({ type: 'negative', message: 'El archivo Excel no contiene hojas.' });
+      if (fileInput.value) fileInput.value.value = ''; // Reset file input
+      $q.loading.hide();
+      return;
+    }
+
+    const worksheet = workbook.Sheets[firstSheetName];
+
+    if (!worksheet) {
+      $q.notify({ type: 'negative', message: 'No se pudo encontrar la hoja de cálculo en el archivo.' });
+      if (fileInput.value) fileInput.value.value = ''; // Reset file input
+      $q.loading.hide();
+      return;
+    }
+
+    const jsonData = XLSX.utils.sheet_to_json<TimeExcelRow>(worksheet);
+
+    if (jsonData.length === 0) {
+      $q.notify({ type: 'warning', message: 'El archivo Excel está vacío o no tiene datos.' });
+      return;
+    }
+
+    const timesToCreate: TimeCreationPayload[] = [];
+    const errors: string[] = [];
+
+    jsonData.forEach((row, index) => {
+      const rowIndex = index + 2;
+      const { codigo_operacion, codigo_prenda, tiempo_estandar, tiempo_suplemento } = row;
+
+      if (!codigo_operacion || !codigo_prenda) {
+        errors.push(`Fila ${rowIndex}: 'codigo_operacion' y 'codigo_prenda' son obligatorios.`);
+        return;
+      }
+      const operation = lstOperations.value.find(op => op.code?.toString() === codigo_operacion?.toString());
+      const garment = lstGarments.value.find(g => g.code?.toString() === codigo_prenda?.toString());
+
+      if (!operation) {
+        errors.push(`Fila ${rowIndex}: No se encontró la operación con código '${codigo_operacion}'.`);
+        return;
+      }
+      if (!garment) {
+        errors.push(`Fila ${rowIndex}: No se encontró la prenda con código '${codigo_prenda}'.`);
+        return;
+      }
+
+      let finalStandardTime: number | null = null;
+      let finalStandardReference: number | null = null;
+
+      if (tiempo_suplemento !== undefined && tiempo_suplemento !== null && !isNaN(Number(tiempo_suplemento))) {
+        finalStandardReference = Number(tiempo_suplemento);
+        finalStandardTime = Number(parseFloat((finalStandardReference * 1.085).toString()).toFixed(2));
+      } else if (tiempo_estandar !== undefined && tiempo_estandar !== null && !isNaN(Number(tiempo_estandar))) {
+        finalStandardTime = Number(tiempo_estandar);
+      } else {
+        errors.push(`Fila ${rowIndex}: Debe proporcionar 'tiempo_suplemento' o 'tiempo_estandar' válido.`);
+        return;
+      }
+      
+      if (finalStandardTime === null) { // Should not happen if logic above is correct, but as a safeguard
+        errors.push(`Fila ${rowIndex}: Error al calcular el tiempo estándar.`);
+        return;
+      }
+
+      timesToCreate.push({
+        operation: operation._id as string,
+        garment: garment._id as string,
+        standardTime: finalStandardTime,
+        standardReference: finalStandardReference,
+      });
+    });
+
+    if (errors.length > 0) {
+      $q.notify({
+        type: 'negative',
+        message: 'Se encontraron errores en el archivo:<br>' + errors.join('<br>'),
+        html: true,
+        multiLine: true,
+        timeout: 10000, // Longer timeout for multiple errors
+        actions: [{ icon: 'close', color: 'white' }]
+      });
+      return;
+    }
+
+    if (timesToCreate.length > 0) {
+      await bulkSaveTimes(timesToCreate);
+    } else {
+      $q.notify({ type: 'info', message: 'No se encontraron registros válidos para cargar en el archivo.' });
+    }
+
+  } catch (error) {
+    console.error('Error processing file:', error);
+    let errorMessage = 'Error al procesar el archivo Excel.';
+    if (axios.isAxiosError(error) && error.response) {
+      errorMessage = error.response.data.message || errorMessage;
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    $q.notify({ type: 'negative', message: errorMessage });
+  } finally {
+    if (fileInput.value) {
+      fileInput.value.value = ''; // Reset file input
+    }
+    $q.loading.hide();
+  }
+}
+
+async function bulkSaveTimes(times: TimeCreationPayload[]): Promise<void> {
+  $q.loading.show({
+    message: 'Guardando tiempos masivamente...',
+  });
+  try {
+    // Ensure operation and garment are strings if backend expects string ObjectIds
+    const payload = times.map(t => ({
+      ...t,
+      operation: String(t.operation),
+      garment: String(t.garment)
+    }));
+
+    await api.post('/times/bulk', payload); // Using 'payload' which has stringified ObjectIds
+    $q.notify({
+      type: 'positive',
+      message: 'Tiempos cargados masivamente con éxito.',
+    });
+    getTimes(); // Refresh table
+  } catch (error) {
+    console.error('Error saving bulk times:', error);
+    let errorMessage = 'Error al guardar los tiempos masivamente.';
+     if (axios.isAxiosError(error) && error.response) {
+      // Assuming the backend sends an array of error messages or a single message object
+      if (Array.isArray(error.response.data.message)) {
+        errorMessage = error.response.data.message.join('<br>');
+      } else if (typeof error.response.data.message === 'string'){
+        errorMessage = error.response.data.message;
+      }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    $q.notify({
+      type: 'negative',
+      message: errorMessage,
+      html: true,
+      multiLine: true,
+      timeout: 7000,
+      actions: [{ icon: 'close', color: 'white' }]
+    });
+  } finally {
+    $q.loading.hide();
+  }
+}
+
 </script>
