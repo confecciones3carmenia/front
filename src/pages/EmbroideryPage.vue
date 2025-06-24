@@ -97,7 +97,7 @@
           <template v-slot:body="props">
             <tr>
               <td style="display: table-cell !important">
-                <q-btn flat dense color="primary" icon="las la-edit" @click="editCutting(props.row)"
+                <q-btn flat dense color="primary" icon="las la-edit" @click="editEmbroidery(props.row)"
                   ><q-tooltip>Editar registro</q-tooltip></q-btn
                 >
                 <q-btn
@@ -105,7 +105,7 @@
                   dense
                   color="negative"
                   icon="las la-trash"
-                  @click="deleteCutting(props.row)"
+                  @click="deleteEmbroidery(props.row)"
                   ><q-tooltip>Eliminar registro</q-tooltip></q-btn
                 >
               </td>
@@ -156,7 +156,7 @@ const columns = ref<QTable['columns']>([
     label: 'Código de prenda',
     align: 'left',
     field: (row) => row.garmentCode,
-    format: (val) => `${val.code}`,
+    format: (val) => val?.code ?? '',
     sortable: true,
   },
   {
@@ -219,7 +219,7 @@ const columns = ref<QTable['columns']>([
     label: 'Operador',
     align: 'left',
     field: (row) => row.operator,
-    format: (val) => `${val.name} ${val.lastname}`,
+    format: (val) => (val ? `${val.name} ${val.lastname}` : ''),
     sortable: true,
   },
 ])
@@ -242,17 +242,26 @@ const lstUsers = ref<Array<User>>([])
 const rows = ref<Array<Embroidery>>([])
 const userOptions = ref<Array<string>>([])
 
-onMounted(() => {
-  getEmbrodery()
-  getGarments()
-  getUsers()
-})
+onMounted(async () => {
+  $q.loading.show({ message: 'Cargando datos...' });
+  try {
+    await Promise.all([getUsers(), getGarments(), getEmbrodery()]);
+  } catch (error) {
+    $q.notify({
+      message: (error as Error).message || 'Error al cargar los datos iniciales.',
+      color: 'negative',
+      position: 'top',
+    });
+  } finally {
+    $q.loading.hide();
+  }
+});
 
 function onSubmit() {
   saveEmbroidery()
 }
 
-function saveEmbroidery() {
+async function saveEmbroidery() {
   const message =
     buttonName.value === 'Actualizar' ? 'Actualizando bordado...' : 'Guardando bordado...'
   $q.loading.show({ message })
@@ -339,17 +348,16 @@ function onReset() {
   }
 }
 
-function editCutting(row: Embroidery) {
+function editEmbroidery(row: Embroidery) {
   buttonName.value = 'Actualizar'
-  console.log('la data en update', row)
   formEmbroidery.value = {
     ...row,
-    operator: `${(<User>row.operator)?.name} ${(<User>row.operator)?.lastname}`,
-    garmentCode: (<Garments>row.garmentCode).code,
+    operator: row.operator ? `${(<User>row.operator).name} ${(<User>row.operator).lastname}` : null,
+    garmentCode: (<Garments>row.garmentCode)?.code ?? null,
   }
 }
 
-function deleteCutting(row: Embroidery) {
+function deleteEmbroidery(row: Embroidery) {
   $q.dialog({
     title: 'Eliminar control de bordado',
     message: '¿Está seguro de eliminar este registro?',
@@ -387,62 +395,22 @@ function deleteCutting(row: Embroidery) {
   })
 }
 
-function getEmbrodery(): void {
-  $q.loading.show({ message: 'Cargando controles de bordado...' })
-  api
-    .get('embroidery')
-    .then((response) => {
-      rows.value = response.data
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getEmbrodery() {
+  const response = await api.get('embroidery');
+  rows.value = response.data;
 }
 
-function getGarments(): void {
-  $q.loading.show({ message: 'Cargando prendas...' })
-  api
-    .get('garments')
-    .then((response) => {
-      lstGarments.value = response.data
-      garments.value = lstGarments.value.map((garment) => garment.code)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getGarments() {
+  const response = await api.get('garments');
+  lstGarments.value = response.data;
+  garments.value = lstGarments.value.map((garment) => garment.code);
 }
 
-function getUsers(): void {
-  $q.loading.show({ message: 'Cargando usuarios...' })
-  api
-    .get('users')
-    .then((response) => {
-      lstUsers.value = response.data
-      userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getUsers() {
+  const response = await api.get('users');
+  lstUsers.value = response.data;
+  userOptions.value = lstUsers.value.map(
+    (user) => `${user.name} ${user.lastname}`
+  );
 }
 </script>

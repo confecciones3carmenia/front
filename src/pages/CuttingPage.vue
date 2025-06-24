@@ -3,7 +3,12 @@
     <div class="row q-pa-md">
       <h5 class="q-mt-sm q-mb-sm">Control de corte</h5>
     </div>
-    <q-card>
+
+    <div v-if="!isReady" class="text-center q-pa-md">
+      <q-spinner-dots color="primary" size="40px" />
+    </div>
+
+    <q-card v-else>
       <q-form @submit="onSubmit" @reset="onReset">
         <div class="row q-pa-md q-col-gutter-md">
           <div class="col-md-2 col-12">
@@ -154,7 +159,7 @@ const columns = ref<QTable['columns']>([
     label: 'Codigo de prenda',
     align: 'left',
     field: (row) => row.garmentCode,
-    format: (val) => `${val.code}`,
+    format: (val) => val?.code ?? '',
     sortable: true,
   },
   {
@@ -208,7 +213,7 @@ const columns = ref<QTable['columns']>([
     label: 'Operador',
     align: 'left',
     field: (row) => row.operator,
-    format: (val) => `${val.name} ${val.lastname}`,
+    format: (val) => (val ? `${val.name} ${val.lastname}` : ''),
     sortable: true,
   },
   {
@@ -245,77 +250,40 @@ const formCutting = ref<Cutting>({
   endCutter: '',
 })
 const garments = ref<Array<string>>([])
-const lstCuttings = ref<Array<Cutting>>([])
 const lstUsers = ref<Array<User>>([])
 const lstGarments = ref<Array<Garments>>([])
 const rows = ref<Array<Cutting>>([])
 const userOptions = ref<Array<string>>([])
+const isReady = ref(false)
 
-onMounted(() => {
-  getUsers()
-  getGarments()
-  getCuttings()
+onMounted(async () => {
+  try {
+    await Promise.all([getUsers(), getGarments(), getCuttings()])
+    isReady.value = true
+  } catch (error) {
+    $q.notify({
+      message: (error as Error).message || 'Error al cargar los datos iniciales.',
+      color: 'negative',
+      position: 'top',
+    })
+  }
 })
 
-function getUsers(): void {
-  $q.loading.show({ message: 'Cargando usuarios...' })
-  api
-    .get('users')
-    .then((response) => {
-      lstUsers.value = response.data
-      userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'top',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getUsers(): Promise<void> {
+  const response = await api.get('users')
+  lstUsers.value = response.data
+  userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
 }
 
-function getGarments(): void {
-  $q.loading.show({ message: 'Cargando prendas...' })
-  api
-    .get('garments')
-    .then((response) => {
-      lstGarments.value = response.data
-      garments.value = lstGarments.value.map((garment) => garment.code)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'top',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getGarments(): Promise<void> {
+  const response = await api.get('garments')
+  lstGarments.value = response.data
+  garments.value = lstGarments.value.map((garment) => garment.code)
 }
 
-function getCuttings(): void {
-  $q.loading.show({ message: 'Cargando cortes...' })
-  api
-    .get('cutting')
-    .then((response) => {
-      lstCuttings.value = response.data
-      rows.value = lstCuttings.value
-      console.log('respuesta de los cutting', response)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'top',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getCuttings(): Promise<void> {
+  const response = await api.get('cutting')
+  rows.value = response.data
 }
 
 function onSubmit(): void {
@@ -340,7 +308,7 @@ function onReset(): void {
   }
 }
 
-function saveCutting(): void {
+async function saveCutting(): Promise<void> {
   const message =
     buttonName.value === 'Actualizar' ? 'Actualizando trazado...' : 'Guardando trazado...'
   $q.loading.show({ message })
@@ -364,7 +332,7 @@ function saveCutting(): void {
     operation: formCutting.value.operation,
   }
   if (buttonName.value === 'Actualizar') {
-    api
+    await api
       .patch(`cutting/${id}`, dataToSend)
       .then(() => {
         $q.notify({
@@ -382,7 +350,7 @@ function saveCutting(): void {
         $q.loading.hide()
       })
   } else {
-    api
+    await api
       .post('cutting', dataToSend)
       .then(() => {
         $q.notify({
@@ -407,12 +375,12 @@ function saveCutting(): void {
 }
 
 function editCutting(row: Cutting): void {
+  buttonName.value = 'Actualizar'
   formCutting.value = {
     ...row,
-    operator: `${(<User>row.operator)?.name} ${(<User>row.operator)?.lastname}`,
-    garmentCode: (<Garments>row.garmentCode).code,
+    operator: row.operator ? `${(<User>row.operator).name} ${(<User>row.operator).lastname}` : null,
+    garmentCode: row.garmentCode ? (<Garments>row.garmentCode).code : null,
   }
-  buttonName.value = 'Actualizar'
 }
 
 function deleteCutting(row: Cutting): void {
@@ -428,9 +396,9 @@ function deleteCutting(row: Cutting): void {
       label: 'No',
       color: 'negative',
     },
-  }).onOk(() => {
+  }).onOk(async () => {
     $q.loading.show({ message: 'Eliminando resgistro...' })
-    api
+    await api
       .delete(`cutting/${row._id}`)
       .then(() => {
         $q.notify({

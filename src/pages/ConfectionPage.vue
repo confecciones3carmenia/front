@@ -13,17 +13,17 @@
         <template v-slot:body-cell-garment="props">
           <q-td :props="props">
             <q-tooltip>
-              {{ props.row.garmentCode.name }}
+              {{ props.row.garmentCode?.name }}
             </q-tooltip>
-            {{ truncateText(props.row.garmentCode.name, 10) }}
+            {{ truncateText(props.row.garmentCode?.name ?? '', 10) }}
           </q-td>
         </template>
         <template v-slot:body-cell-operation="props">
           <q-td :props="props">
             <q-tooltip>
-              {{ props.row.operation.name }}
+              {{ props.row.operation?.name }}
             </q-tooltip>
-            {{ truncateText(props.row.operation.name, 15) }}
+            {{ truncateText(props.row.operation?.name ?? '', 15) }}
           </q-td>
         </template>
         <template v-slot:body-cell-efficiency="props">
@@ -59,7 +59,7 @@ const columns = ref<QTable['columns']>([
     required: true,
     label: 'Operario',
     align: 'left',
-    field: (row) => `${row.operator.name} ${row.operator.lastname}`,
+    field: (row) => (row.operator ? `${row.operator.name} ${row.operator.lastname}` : ''),
   },
   {
     name: 'operationOrder',
@@ -73,7 +73,7 @@ const columns = ref<QTable['columns']>([
     required: true,
     label: 'Prenda',
     align: 'left',
-    field: (row) => row.garmentCode.name,
+    field: (row) => row.garmentCode?.name ?? '',
     format: (val) => truncateText(val, 10),
   },
   {
@@ -81,7 +81,7 @@ const columns = ref<QTable['columns']>([
     required: true,
     label: 'Operación',
     align: 'left',
-    field: (row) => row.operation.name,
+    field: (row) => row.operation?.name ?? '',
     format: (val) => truncateText(val, 15),
   },
   {
@@ -122,30 +122,24 @@ const columns = ref<QTable['columns']>([
 ])
 const rows = ref<Array<Confection>>([])
 
-onMounted(() => {
-  getConfection()
+onMounted(async () => {
+  $q.loading.show({ message: 'Cargando datos...' });
+  try {
+    await getConfection()
+  } catch (error) {
+    $q.notify({
+      message: (error as Error).message || 'Error al cargar los datos.',
+      color: 'negative',
+      position: 'top',
+    })
+  } finally {
+    $q.loading.hide()
+  }
 })
 
-function getConfection(): void {
-  $q.loading.show({
-    message: 'Cargando confecciones...',
-  })
-  api
-    .get('/confection')
-    .then((response) => {
-      console.log('la data que llega', response)
-      rows.value = response.data
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getConfection(): Promise<void> {
+  const response = await api.get('/confection')
+  rows.value = response.data
 }
 
 function formatDate(date: string) {

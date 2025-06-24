@@ -6,17 +6,15 @@ export default function isNotAuthenticatedGuard(
   from: RouteLocationNormalized,
   next: NavigationGuardNext
 ) {
-  const authStore = useAuthStore()
-
+  const authStore = useAuthStore();
   if (!authStore.isAuthenticated) {
-    // Allow navigation if the user is not authenticated
-    next()
+    next(); // Allow access to login page
   } else {
-    // Redirect to dashboard if already authenticated and not already on the dashboard
-    if (to.name === 'dashboard') {
-      next()
+    // If authenticated, redirect them away from login page
+    if (authStore.isAdmin) {
+      next({ name: 'dashboard' });
     } else {
-      next({ name: 'dashboard' })
+      next({ name: 'screen-control' });
     }
   }
 }

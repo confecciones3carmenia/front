@@ -312,74 +312,63 @@ const lstUsers = ref<Array<User>>([])
 const rows = ref<Array<ScreenControl>>([])
 const title = ref<string>('Agregar')
 const userOptions = ref<Array<{ label: string; value: string }>>([])
+let efficiencyInterval: number
 
 onBeforeMount(() => {
   rowsStore.loadRowsFromStorage()
   rows.value = rowsStore.rows
 })
 
-onMounted(() => {
-  const today = new Date().toISOString().split('T')[0]; // Get current date in 'YYYY-MM-DD' format
-  const lastCheckDate = localStorage.getItem('lastScreenControlCheckDate');
+onMounted(async () => {
+  const today = new Date().toISOString().split('T')[0]
+  const lastCheckDate = localStorage.getItem('lastScreenControlCheckDate')
 
   if (lastCheckDate !== today) {
-    console.log(`Day changed from ${lastCheckDate} to ${today}. Clearing local screen control data...`);
     try {
-      // Clear the locally stored rows data (assuming 'screenControlRows' is the key used by rowsStore)
-      localStorage.removeItem('screenControlRows');
-      console.log("Local storage item 'screenControlRows' removed.");
-
-      // Clear the current rows array in the component
-      rows.value = [];
-      console.log('Local rows array cleared.');
-
-      // Update the last check date - ensure 'today' is valid string
-      if (today) { 
-        localStorage.setItem('lastScreenControlCheckDate', today);
-        console.log('localStorage updated with new check date.');
-      } else {
-         console.error('Could not determine today\'s date string.'); 
+      localStorage.removeItem('screenControlRows')
+      rows.value = []
+      if (today) {
+        localStorage.setItem('lastScreenControlCheckDate', today)
       }
-
-      // Notify user
-      if ($q) {
-        $q.notify({
-          color: 'positive',
-          position: 'top',
-          message: 'Registros locales del día anterior limpiados automáticamente.',
-          icon: 'info',
-        });
-        console.log('Success notification sent.');
-      } else {
-        console.warn('$q (Quasar) not available for notification.');
-      }
+      $q.notify({
+        color: 'positive',
+        position: 'top',
+        message: 'Registros locales del día anterior limpiados automáticamente.',
+        icon: 'info',
+      })
     } catch (e) {
-      console.error('Error occurred while clearing local data:', e);
-      if ($q) {
-        $q.notify({
-          color: 'negative',
-          position: 'top',
-          message: 'Error al limpiar los registros locales automáticamente.',
-          icon: 'report_problem',
-        });
-      } else {
-        console.warn('$q (Quasar) not available for error notification.');
-      }
+      console.error('Error occurred while clearing local data:', e)
+      $q.notify({
+        color: 'negative',
+        position: 'top',
+        message: 'Error al limpiar los registros locales automáticamente.',
+        icon: 'report_problem',
+      })
     }
-  } else {
-    console.log(`Date check passed. Last check: ${lastCheckDate}, Today: ${today}`);
   }
 
-  // Initial data loading (get static data like users/times)
-  getUsers()
-  getTimes()
-  // The rows themselves should already be loaded (or cleared) by now
-  // If rowsStore.loadRowsFromStorage() needs to run AFTER clearing, adjust logic.
-  setInterval(rowsStore.updateEfficiency, 60000)
+  try {
+    $q.loading.show({ message: 'Cargando datos...' })
+    await Promise.all([getUsers(), getTimes()])
+  } catch (error) {
+    $q.notify({
+      message: (error as Error).message || 'Error al cargar los datos iniciales.',
+      color: 'negative',
+      position: 'top',
+    })
+  } finally {
+    $q.loading.hide()
+  }
+
+  efficiencyInterval = window.setInterval(() => {
+    rowsStore.updateEfficiency()
+    rows.value = [...rowsStore.rows]
+  }, 20000)
 });
 
 onBeforeUnmount(() => {
   rowsStore.saveRowsToStorage()
+  clearInterval(efficiencyInterval)
 })
 
 function createOperation(): void {
@@ -441,6 +430,7 @@ async function onSubmit(): Promise<void> {
     rowsStore.addRow({ ...formScreenControl.value })
   }
   fixed.value = false
+  setTimeout(rowsStore.updateEfficiency, 6000)
   onReset()
 }
 
@@ -448,9 +438,19 @@ function editProces(row: ScreenControl): void {
   fixed.value = true
   title.value = 'Editar'
   disable.value = true
+
+  let userId: string | null = null
+  if (typeof row.user === 'string') {
+    userId = row.user
+  } else if (row.user && typeof row.user === 'object' && 'value' in row.user) {
+    userId = row.user.value
+  }
+
   formScreenControl.value = {
     ...row,
-    user: { label: getUserNameById(row.user as string), value: row.user as string },
+    user: userId
+      ? { label: getUserNameById(userId), value: userId }
+      : { label: null, value: null },
   }
 }
 
@@ -583,56 +583,27 @@ function finishProcess(row: ScreenControl) {
   })
 }
 
-function getUsers(): void {
-  $q.loading.show({ message: 'Cargando usuarios...' })
-  api
-    .get('users')
-    .then((response) => {
-      lstUsers.value = response.data
-      userOptions.value = lstUsers.value.map((user) => ({
-        label: `${user.name} ${user.lastname}`,
-        value: user._id ?? '',
-      }))
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getUsers(): Promise<void> {
+  const response = await api.get('users')
+  lstUsers.value = response.data
+  userOptions.value = lstUsers.value.map((user) => ({
+    label: `${user.name} ${user.lastname}`,
+    value: user._id ?? '',
+  }))
 }
 
-function getUserNameById(userId: string): string {
+function getUserNameById(userId: string | null): string {
+  if (!userId) return 'N/A'
   const user = lstUsers.value.find((user) => user._id === userId)
-  return user ? `${user.name} ${user.lastname}` : ''
+  return user ? `${user.name} ${user.lastname}` : 'Usuario no encontrado'
 }
 
-function getTimes(): void {
-  $q.loading.show({
-    message: 'Cargando tiempos',
-  })
-  api
-    .get('/times')
-    .then((response) => {
-      lstOperationTimes.value = response.data
-      operationTimes.value = lstOperationTimes.value.map(
-        (time) => (<Operation>time.operation).code ?? '',
-      )
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        color: 'negative',
-        position: 'center',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getTimes(): Promise<void> {
+  const response = await api.get('/times')
+  lstOperationTimes.value = response.data
+  operationTimes.value = lstOperationTimes.value.map(
+    (time) => (<Operation>time.operation)?.code ?? '',
+  )
 }
 
 function getCurrentTime(): string {

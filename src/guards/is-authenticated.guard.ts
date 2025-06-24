@@ -6,17 +6,10 @@ export default function isAuthenticatedGuard(
   from: RouteLocationNormalized,
   next: NavigationGuardNext
 ) {
-  const authStore = useAuthStore()
-
+  const authStore = useAuthStore();
   if (authStore.isAuthenticated) {
-    // Allow navigation if the user is authenticated
-    next()
+    next(); // Allow access
   } else {
-    // Redirect to login only if not already on the login page
-    if (to.name === 'login') {
-      next()
-    } else {
-      next({ name: 'login' })
-    }
+    next({ name: 'login' }); // Redirect to login
   }
 }

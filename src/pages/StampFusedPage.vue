@@ -3,6 +3,7 @@
     <div class="row q-pa-md">
       <h5 class="q-mt-sm q-mb-sm">Control de bordado y fusionado</h5>
     </div>
+
     <q-card>
       <q-form @submit="onSubmit" @reset="onReset">
         <div class="row q-pa-md q-col-gutter-md">
@@ -84,7 +85,7 @@
           <template v-slot:body="props">
             <tr>
               <td style="display: table-cell !important">
-                <q-btn flat dense color="primary" icon="las la-edit" @click="editCutting(props.row)"
+                <q-btn flat dense color="primary" icon="las la-edit" @click="editStamped(props.row)"
                   ><q-tooltip>Editar registro</q-tooltip></q-btn
                 >
                 <q-btn
@@ -92,7 +93,7 @@
                   dense
                   color="negative"
                   icon="las la-trash"
-                  @click="deleteCutting(props.row)"
+                  @click="deleteStamped(props.row)"
                   ><q-tooltip>Eliminar registro</q-tooltip></q-btn
                 >
               </td>
@@ -142,7 +143,7 @@ const columns = ref<QTable['columns']>([
     label: 'Código de prenda',
     align: 'left',
     field: (row) => row.garmentCode,
-    format: (val) => `${val.code}`,
+    format: (val) => val?.code ?? '',
     sortable: true,
   },
   {
@@ -196,7 +197,7 @@ const columns = ref<QTable['columns']>([
     label: 'Operador',
     align: 'left',
     field: (row) => row.operator,
-    format: (val) => `${val.name} ${val.lastname}`,
+    format: (val) => (val ? `${val.name} ${val.lastname}` : ''),
     sortable: true,
   },
 ])
@@ -218,10 +219,19 @@ const lstUsers = ref<Array<User>>([])
 const rows = ref<Array<Stamped>>([])
 const userOptions = ref<Array<string>>([])
 
-onMounted(() => {
-  getStamped()
-  getGarments()
-  getUsers()
+onMounted(async () => {
+  $q.loading.show({ message: 'Cargando datos...' });
+  try {
+    await Promise.all([getStamped(), getGarments(), getUsers()])
+  } catch (error) {
+    $q.notify({
+      message: (error as Error).message || 'Error al cargar los datos iniciales.',
+      color: 'negative',
+      position: 'top',
+    })
+  } finally {
+    $q.loading.hide()
+  }
 })
 
 function onSubmit(): void {
@@ -312,16 +322,16 @@ function saveStamped(): void {
   }
 }
 
-function editCutting(row: Stamped): void {
+function editStamped(row: Stamped): void {
   buttonName.value = 'Actualizar'
   formStamped.value = {
     ...row,
-    operator: `${(<User>row.operator)?.name} ${(<User>row.operator)?.lastname}`,
-    garmentCode: (<Garments>row.garmentCode).code,
+    operator: row.operator ? `${(<User>row.operator).name} ${(<User>row.operator).lastname}` : null,
+    garmentCode: row.garmentCode ? (<Garments>row.garmentCode).code : null,
   }
 }
 
-function deleteCutting(row: Stamped): void {
+function deleteStamped(row: Stamped): void {
   $q.dialog({
     title: 'Eliminar control de bordado y fusionado',
     message: '¿Está seguro de eliminar este registro?',
@@ -361,62 +371,20 @@ function deleteCutting(row: Stamped): void {
   })
 }
 
-function getStamped(): void {
-  $q.loading.show({ message: 'Cargando estampados...' })
-  api
-    .get('stamped')
-    .then((response) => {
-      rows.value = response.data
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getStamped(): Promise<void> {
+  const response = await api.get('stamped')
+  rows.value = response.data
 }
 
-function getGarments(): void {
-  $q.loading.show({ message: 'Cargando prendas...' })
-  api
-    .get('garments')
-    .then((response) => {
-      lstGarments.value = response.data
-      garments.value = lstGarments.value.map((garment) => garment.code)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getGarments(): Promise<void> {
+  const response = await api.get('garments')
+  lstGarments.value = response.data
+  garments.value = lstGarments.value.map((garment) => garment.code)
 }
 
-function getUsers(): void {
-  $q.loading.show({ message: 'Cargando usuarios...' })
-  api
-    .get('users')
-    .then((response) => {
-      lstUsers.value = response.data
-      userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
-    })
-    .catch((error) => {
-      $q.notify({
-        message: error.message,
-        position: 'center',
-        color: 'negative',
-      })
-    })
-    .finally(() => {
-      $q.loading.hide()
-    })
+async function getUsers(): Promise<void> {
+  const response = await api.get('users')
+  lstUsers.value = response.data
+  userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
 }
 </script>
