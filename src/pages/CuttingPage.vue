@@ -23,15 +23,6 @@
             />
           </div>
           <div class="col-md-2 col-12">
-            <q-select
-              type="number"
-              :options="garments"
-              v-model="formCutting.garmentCode"
-              filled
-              label="Código de prenda"
-            />
-          </div>
-          <div class="col-md-2 col-12">
             <q-input type="number" v-model="formCutting.streak" filled label="Trazo" />
           </div>
           <div class="col-md-2 col-12">
@@ -55,7 +46,7 @@
             <q-input type="time" v-model="formCutting.endCutter" filled label="Hora final" />
           </div>
           <div class="col-md-2 col-12">
-            <q-input v-model="formCutting.operation" filled label="Operación" />
+            <q-select v-model="formCutting.operation" use-input input-debounce="0" :options="operations" @filter="filterFn" filled label="Operación" />
           </div>
           <div class="col-md-4 col-12">
             <q-select
@@ -73,8 +64,9 @@
               type="reset"
               color="negative"
               class="q-mt-md"
-              >Cancelar</q-btn
             >
+              Cancelar
+            </q-btn>
             <q-btn flat type="submit" color="positive" class="q-mt-md">{{ buttonName }}</q-btn>
           </div>
         </div>
@@ -127,9 +119,10 @@
 import { QTable, useQuasar } from 'quasar'
 import { api } from 'src/boot/axios'
 import type { Cutting } from 'src/common/interfaces/cutting.interface'
-import type { Garments } from 'src/common/interfaces/garments.interface'
 import type { User } from 'src/common/interfaces/user.interface'
+import type { Operation } from 'src/common/interfaces/operation.interface'
 import { onMounted, ref } from 'vue'
+import type { Time } from 'src/common/interfaces'
 
 const $q = useQuasar()
 
@@ -151,15 +144,6 @@ const columns = ref<QTable['columns']>([
     align: 'left',
     field: (row) => row.productionOrder,
     format: (val) => `${val}`,
-    sortable: true,
-  },
-  {
-    name: 'garmentCode',
-    required: true,
-    label: 'Codigo de prenda',
-    align: 'left',
-    field: (row) => row.garmentCode,
-    format: (val) => val?.code ?? '',
     sortable: true,
   },
   {
@@ -204,7 +188,7 @@ const columns = ref<QTable['columns']>([
     label: 'Operacion',
     align: 'left',
     field: (row) => row.operation,
-    format: (val) => `${val}`,
+    format: (val) => (val ? `${val.code}` : ''),
     sortable: true,
   },
   {
@@ -234,31 +218,51 @@ const columns = ref<QTable['columns']>([
     format: (val) => `${val}`,
     sortable: true,
   },
+  {
+    name: 'estimatedTime',
+    required: true,
+    label: 'Tiempo estimado',
+    align: 'left',
+    field: (row) => row.estimatedTime,
+    format: (val) => `${val}`,
+    sortable: true,
+  },
+  {
+    name: 'efficiency',
+    required: true,
+    label: 'Eficacia',
+    align: 'left',
+    field: (row) => row.efficiency,
+    format: (val) => `${val}`,
+    sortable: true,
+  },
 ])
 const formCutting = ref<Cutting>({
   _id: '',
   date: '',
   productionOrder: null,
-  garmentCode: null,
   streak: null,
   layers: null,
   longStroke: null,
   unitsPerLayer: null,
-  operation: '',
+  operation: null,
   operator: null,
   initCutter: '',
   endCutter: '',
+  estimatedTime: 0,
+  efficiency: '',
 })
-const garments = ref<Array<string>>([])
 const lstUsers = ref<Array<User>>([])
-const lstGarments = ref<Array<Garments>>([])
+const lstOperations = ref<Array<Operation>>([])
 const rows = ref<Array<Cutting>>([])
 const userOptions = ref<Array<string>>([])
 const isReady = ref(false)
+const operations = ref<Array<string>>([])
+const lstTimes = ref<Array<Time>>([])
 
 onMounted(async () => {
   try {
-    await Promise.all([getUsers(), getGarments(), getCuttings()])
+    await Promise.all([getUsers(), getCuttings(), getOperations(), getTimes()])
     isReady.value = true
   } catch (error) {
     $q.notify({
@@ -275,15 +279,34 @@ async function getUsers(): Promise<void> {
   userOptions.value = lstUsers.value.map((user) => `${user.name} ${user.lastname}`)
 }
 
-async function getGarments(): Promise<void> {
-  const response = await api.get('garments')
-  lstGarments.value = response.data
-  garments.value = lstGarments.value.map((garment) => garment.code)
-}
-
 async function getCuttings(): Promise<void> {
   const response = await api.get('cutting')
   rows.value = response.data
+}
+
+async function getOperations(): Promise<void> {
+  const response = await api.get('operations')
+  lstOperations.value = response.data
+  operations.value = lstOperations.value.map((operation) => operation.code).filter((code): code is string => code != null)
+}
+
+async function getTimes(): Promise<void> {
+  const response = await api.get('times')
+  lstTimes.value = response.data
+}
+
+function filterFn(
+  val: string,
+  update: (callback: () => void) => void
+): void {
+  update(() => {
+    const needle = val.toLowerCase()
+    operations.value = lstOperations.value
+      // 1) keep only non-null codes that match
+      .filter(op => op.code != null && op.code.toLowerCase().includes(needle))
+      // 2) extract the code string
+      .map(op => op.code as string)
+  })
 }
 
 function onSubmit(): void {
@@ -296,15 +319,16 @@ function onReset(): void {
     _id: '',
     date: '',
     productionOrder: null,
-    garmentCode: null,
     streak: null,
     layers: null,
     longStroke: null,
     unitsPerLayer: null,
-    operation: '',
+    operation: null,
     operator: null,
     initCutter: '',
     endCutter: '',
+    estimatedTime: 0,
+    efficiency: '',
   }
 }
 
@@ -317,9 +341,67 @@ async function saveCutting(): Promise<void> {
   const user = lstUsers.value.find(
     (u) => `${u.name} ${u.lastname}` === <string>formCutting.value.operator,
   )
-  const garmet = lstGarments.value.find((g) => g.code === formCutting.value.garmentCode)
+  const operation = lstOperations.value.find(g => g.code === (formCutting.value.operation as string));
+  if (!operation) {
+    console.error(`Operation ${formCutting.value.operation} not found in lstOperations`);
+  }
+  // Calculate estimatedTime based on Excel formula
+  const timeEntry = lstTimes.value.find(t => {
+    const op = t.operation;
+    const opId = typeof op === 'string' ? op : (op as Operation)._id;
+    return opId === operation?._id;
+  });
+  if (!timeEntry) {
+    console.error(`Time entry for operation ${operation?._id} not found`);
+  }
+  const Q3 = Number(timeEntry?.standardTime) || 0;
+  const F3 = Number(formCutting.value.layers) || 0;
+  const G3 = Number(formCutting.value.longStroke) || 0;
+  const H3 = Number(formCutting.value.streak) || 0;
+  let estimatedTimeCalc = 0;
+  switch (operation?.code) {
+    case 'D1':
+      estimatedTimeCalc = (F3 * G3) * Q3;
+      break;
+    case 'D2':
+      estimatedTimeCalc = H3 * Q3;
+      break;
+    case 'D3':
+      estimatedTimeCalc = (H3 * Q3) * 10;
+      break;
+    case 'D4':
+      estimatedTimeCalc = H3 * Q3;
+      break;
+    case 'D1-D2-D4':
+      estimatedTimeCalc = (H3 * Q3) + (0.015 * G3 * F3) * H3;
+      break;
+    case 'D2-D4':
+      estimatedTimeCalc = H3 * Q3;
+      break;
+    case 'D1-D2':
+      estimatedTimeCalc = (Q3 * H3) + (F3 * G3 * H3);
+      break;
+    case 'D3-D4':
+      estimatedTimeCalc = ((H3 * 8) * Q3) + (H3 * 1);
+      break;
+    default:
+      estimatedTimeCalc = 0;
+  }
+  formCutting.value.estimatedTime = estimatedTimeCalc;
+
+  const partsInit = formCutting.value.initCutter?.split(':').map(Number) ?? [];
+  const [initHours = 0, initMinutes = 0, initSeconds = 0] = partsInit;
+  const partsEnd = formCutting.value.endCutter?.split(':').map(Number) ?? [];
+  const [endHours = 0, endMinutes = 0, endSeconds = 0] = partsEnd;
+  const initTime = new Date()
+  initTime.setHours(initHours, initMinutes, initSeconds)
+  const endTime = new Date()
+  endTime.setHours(endHours, endMinutes, endSeconds)
+  const elapsedTime = (endTime.getTime() - initTime.getTime()) / 60000
+  const efficiency = (formCutting.value.estimatedTime / elapsedTime) * 100
+  formCutting.value.efficiency = `${efficiency.toFixed(2)}%`
+
   const dataToSend: Cutting = {
-    garmentCode: garmet?._id ?? '',
     operator: user?._id ?? '',
     date: formCutting.value.date,
     productionOrder: formCutting.value.productionOrder,
@@ -329,7 +411,9 @@ async function saveCutting(): Promise<void> {
     longStroke: formCutting.value.longStroke,
     initCutter: formCutting.value.initCutter,
     endCutter: formCutting.value.endCutter,
-    operation: formCutting.value.operation,
+    operation: operation?._id ?? '',
+    estimatedTime: formCutting.value.estimatedTime,
+    efficiency: formCutting.value.efficiency,
   }
   if (buttonName.value === 'Actualizar') {
     await api
@@ -379,7 +463,7 @@ function editCutting(row: Cutting): void {
   formCutting.value = {
     ...row,
     operator: row.operator ? `${(<User>row.operator).name} ${(<User>row.operator).lastname}` : null,
-    garmentCode: row.garmentCode ? (<Garments>row.garmentCode).code : null,
+    operation: row.operation ? (<Operation>row.operation).code : null,
   }
 }
 
