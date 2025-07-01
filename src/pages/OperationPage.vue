@@ -2,40 +2,28 @@
   <q-page>
     <div class="row q-pa-md">
       <div class="col-12 items-end q-mb-md" style="text-align: end">
-        <q-btn
-          class="text-end q-mr-sm"
-          square
-          color="white"
-          glossy
-          text-color="black"
-          icon="las la-file-upload"
-          @click="triggerFileInput()"
-        >
+        <q-btn class="text-end q-mr-sm" square color="white" glossy text-color="black" icon="las la-file-upload"
+          @click="triggerFileInput()">
           <q-tooltip>Carga Masiva de Operaciones</q-tooltip>
         </q-btn>
-        <q-btn
-          class="text-end"
-          square
-          color="white"
-          glossy
-          text-color="black"
-          icon="las la-plus"
-          @click="createOperation()"
-        >
+        <q-btn class="text-end" square color="white" glossy text-color="black" icon="las la-plus"
+          @click="createOperation()">
           <q-tooltip>Agregar operación</q-tooltip>
         </q-btn>
         <input type="file" ref="fileInput" @change="handleFileUpload" accept=".xlsx, .xls" style="display: none" />
       </div>
       <div class="col-12 full-width">
-        <q-table
-          flat
-          bordered
-          title="Operaciones"
-          :rows="rows"
-          :columns="columns"
-          row-key="name"
-          no-data-label="No hay datos para mostrar en el momento."
-        >
+        <q-table flat bordered title="Operaciones" :rows="rows" :columns="columns" row-key="name" :filter="filter"
+          no-data-label="No hay datos para mostrar en el momento.">
+          <template v-slot:top>
+            <p class="text-h5">Operaciones</p>
+            <q-space />
+            <q-input flat bordered debounce="300" placeholder="Buscar..." color="primary" v-model="filter">
+              <template v-slot:append>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+          </template>
           <template v-slot:header="props">
             <q-tr :props="props">
               <q-th auto-width>Acciones</q-th>
@@ -47,17 +35,10 @@
           <template v-slot:body="props">
             <tr>
               <td style="display: table-cell !important">
-                <q-btn flat dense color="primary" icon="las la-edit" @click="editUser(props.row)"
-                  ><q-tooltip>Editar registro</q-tooltip></q-btn
-                >
-                <q-btn
-                  flat
-                  dense
-                  color="negative"
-                  icon="las la-trash"
-                  @click="deleteUser(props.row)"
-                  ><q-tooltip>Eliminar registro</q-tooltip></q-btn
-                >
+                <q-btn flat dense color="primary" icon="las la-edit" @click="editUser(props.row)"><q-tooltip>Editar
+                    registro</q-tooltip></q-btn>
+                <q-btn flat dense color="negative" icon="las la-trash"
+                  @click="deleteUser(props.row)"><q-tooltip>Eliminar registro</q-tooltip></q-btn>
               </td>
               <q-td v-for="col in props.cols" :key="col.name" :props="props">
                 {{ col.value }}
@@ -68,24 +49,11 @@
       </div>
     </div>
   </q-page>
-  <q-dialog
-    v-model="fixed"
-    persistent
-    backdrop-filter="blur(5px)"
-    transition-show="fade"
-    transition-hide="fade"
-  >
+  <q-dialog v-model="fixed" persistent backdrop-filter="blur(5px)" transition-show="fade" transition-hide="fade">
     <q-card>
       <div class="col-12 q-ma-md" style="text-align: start">
-        <q-btn
-          class="float-right"
-          square
-          dense
-          color="white"
-          text-color="black"
-          icon="las la-times"
-          @click="closeDialog()"
-        >
+        <q-btn class="float-right" square dense color="white" text-color="black" icon="las la-times"
+          @click="closeDialog()">
           <q-tooltip>Cerrar</q-tooltip>
         </q-btn>
         <h5 class="q-my-md">{{ title }} operación</h5>
@@ -144,6 +112,7 @@ const formOperation = ref<Operation>({
 })
 const title = ref<string>('Crear')
 const rows = ref<Array<Operation>>([])
+const filter = ref<string>('')
 
 onMounted(() => {
   getOperations()
@@ -261,11 +230,11 @@ function editUser(row: Operation) {
   fixed.value = true
   title.value = 'Editar'
   buttonName.value = 'Actualizar'
-  formOperation.value = { 
+  formOperation.value = {
     _id: row._id ?? '',
     code: row.code,
     name: row.name,
-   }
+  }
 }
 
 function deleteUser(row: Operation) {

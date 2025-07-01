@@ -36,12 +36,21 @@
         <q-table
           flat
           bordered
-          title="Prendas"
           :rows="rows"
           :columns="columns"
           row-key="name"
+          :filter="filter"
           no-data-label="No hay datos para mostrar en el momento."
         >
+          <template v-slot:top>
+            <p class="text-h5">Prendas</p>
+            <q-space />
+            <q-input flat bordered debounce="300" placeholder="Buscar..." color="primary" v-model="filter">
+              <template v-slot:append>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+          </template>
           <template v-slot:header="props">
             <q-tr :props="props">
               <q-th auto-width>Acciones</q-th>
@@ -127,6 +136,7 @@ import type { GarmentExcelRow } from 'src/common/interfaces/excels.interface'
 const $q = useQuasar()
 
 const buttonName = ref<string>('Guardar')
+const filter = ref<string>('')
 const fixed = ref<boolean>(false)
 const columns = ref<QTable['columns']>([
   {

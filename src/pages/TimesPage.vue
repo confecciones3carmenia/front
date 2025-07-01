@@ -30,12 +30,21 @@
         <q-table
           flat
           bordered
-          title="Tiempos"
           :rows="rows"
           :columns="columns"
           row-key="name"
+          :filter="filter"
           no-data-label="No hay datos para mostrar en el momento."
         >
+          <template v-slot:top>
+            <p class="text-h5">Tiempos</p>
+            <q-space />
+            <q-input flat bordered debounce="300" placeholder="Buscar..." color="primary" v-model="filter">
+              <template v-slot:append>
+                <q-icon name="search" />
+              </template>
+            </q-input>
+          </template>
           <template v-slot:header="props">
             <q-tr :props="props">
               <q-th auto-width>Acciones</q-th>
@@ -194,6 +203,7 @@ const operations = ref<Array<string>>([])
 const referenceTime = ref<boolean>(false)
 const rows = ref<Array<Time>>([])
 const title = ref<string>('Crear')
+const filter = ref<string>('')
 const fileInput = ref<HTMLInputElement | null>(null);
 
 onMounted(() => {
